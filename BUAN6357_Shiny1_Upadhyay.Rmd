@@ -1,0 +1,220 @@
+---
+title: "LA Traffic Collisions Shiny"
+output: html_document
+---
+
+```{r loading libraries}
+knitr::opts_chunk$set(echo = TRUE)
+if("janitor" %in% rownames(installed.packages()) == FALSE) {install.packages("janitor", repos='http://cran.us.r-project.org')} else{library(janitor)}
+if("lubridate" %in% rownames(installed.packages()) == FALSE) {install.packages("lubridate", repos='http://cran.us.r-project.org')} else{library(lubridate)}
+if("rgdal" %in% rownames(installed.packages()) == FALSE) {install.packages("rgdal", repos='http://cran.us.r-project.org')} else{library(rgdal)}
+if("tidyverse" %in% rownames(installed.packages()) == FALSE) {install.packages("tidyverse", repos='http://cran.us.r-project.org')} else{library(tidyverse)}
+if("leaflet" %in% rownames(installed.packages()) == FALSE) {install.packages("leaflet", repos='http://cran.us.r-project.org')} else{library(leaflet)}
+if("shiny" %in% rownames(installed.packages()) == FALSE) {install.packages("shiny", repos='http://cran.us.r-project.org')} else{library(shiny)}
+if("dplyr" %in% rownames(installed.packages()) == FALSE) {install.packages("dplyr", repos='http://cran.us.r-project.org')} else{library(dplyr)}
+if("leaflet.extras" %in% rownames(installed.packages()) == FALSE) {install.packages("leaflet.extras", repos='http://cran.us.r-project.org')} else{library(leaflet.extras)}
+if("ggthemes" %in% rownames(installed.packages()) == FALSE) {install.packages("ggthemes", repos='http://cran.us.r-project.org')} else{library(ggthemes)}
+if("shinythemes" %in% rownames(installed.packages()) == FALSE) {install.packages("shinythemes", repos='http://cran.us.r-project.org')} else{library(shinythemes)}
+if("viridis" %in% rownames(installed.packages()) == FALSE) {install.packages("viridis", repos='http://cran.us.r-project.org')} else{library(viridis)}
+if("gplots" %in% rownames(installed.packages()) == FALSE) {install.packages("gplots", repos='http://cran.us.r-project.org')} else{library(gplots)}
+if("heatmap.plus" %in% rownames(installed.packages()) == FALSE) {install.packages("heatmap.plus", repos='http://cran.us.r-project.org')} else{library(heatmap.plus)}
+if("rstudioapi" %in% rownames(installed.packages()) == FALSE) {install.packages("rstudioapi", repos='http://cran.us.r-project.org')} else{library(rstudioapi)}
+
+
+library(here)
+library(janitor)
+library(lubridate)
+library(rgdal)
+library(tidyverse)
+library(leaflet)
+library(shiny)
+library(dplyr)
+library(leaflet.extras)
+library(ggthemes)
+library(shinythemes)
+library(viridis)
+library(gplots)
+library(heatmap.plus)
+library(rstudioapi)
+```
+
+
+```{r importing csv}
+set_wd <- function() {
+  current_path <- getActiveDocumentContext()$path 
+  setwd(dirname(current_path ))
+  print( getwd() )
+}
+set_wd()
+
+tc <- read_csv("traffic-collision-data-from-2010-to-present.csv")
+```
+
+
+```{r Data Pre-processing}
+tc$latlong <- gsub("[^0-9.]", "", tc$Location) 
+lat <- substring(tc$latlong,1,7)
+long <- substring(tc$latlong,8,)
+tc$lat <- as.double(lat)
+tc$long <- -as.double(long)
+empindex <- which(is.na(tc$lat))
+newtc <- tc[-empindex,]
+newtc$latlong <- NULL
+newtc <- select(newtc, -2, -7:-24)
+colnames(newtc)[1] <- "drnumber"
+colnames(newtc)[2] <- "dateocc"
+colnames(newtc)[3] <- "timeocc"
+colnames(newtc)[4] <- "areacode"
+colnames(newtc)[5] <- "areaname"
+colnames(newtc)[6] <- "lat"
+colnames(newtc)[7] <- "long"
+newtc$year <- lubridate::year(newtc$dateocc)
+newtc <- subset(newtc, year == 2018)
+hour <- newtc$timeocc
+hour <- paste(substr(hour,1,2),":",substr(hour,3,4), sep = "")
+hour <- strptime(paste("2001-01-01", hour), format="%Y-%m-%d %H:%M")
+hour <- format(round(hour, units="hours"), format="%H:%M")
+newtc$hourofacc <- hour
+chardate <- as.character(newtc$dateocc)
+newtc$date <- chardate
+
+```
+
+
+
+```{r Shiny UI}
+
+ui <- fluidPage(
+  column(3, offset = 0, titlePanel("LA Traffic Collision Statistics (2018) ", windowTitle = "LA Traffic")),theme = shinytheme("darkly"),
+  tabsetPanel(
+    tabPanel(title = "Frequency of Collisions by hour",
+             
+             plotOutput(outputId = "histogram", height = 850)
+             
+    ),
+
+  tabPanel("Location of Collisions",
+          sidebarLayout(
+            sidebarPanel(width = 0),
+               mainPanel(
+                 tabsetPanel(type = "tabs",
+               tabPanel(  
+                 "Dark Map",
+                 leafletOutput(outputId = "heatmap", width = 1890, height = 780)
+               ),
+               
+               tabPanel("Light Map",
+                        leafletOutput(outputId = "map", width = 1890  , height = 780)
+               )
+               
+
+             )
+    )
+  )
+),
+tabPanel("Heatmap",
+         plotOutput(outputId = "heatmap1",width = 1900, height = 850)
+         
+)
+
+
+
+)
+)
+
+```
+
+
+
+```{r Shiny Server}
+
+
+
+server <- function(input, output) {
+  
+  # Create scatterplot object the plotOutput function is expecting
+  output$histogram <- renderPlot({
+    
+    newtc %>%
+      group_by(hourofacc)%>% 
+      count() %>% 
+      ggplot(aes(x = hourofacc, y = n),colour=clarity) + 
+      geom_histogram(stat = 'identity', color = "blue", fill = "lightblue")+
+      xlab("Hour of the Day")  +
+      scale_y_continuous(name = "Number of Accidents")+
+      ggtitle("Frequency of collisions by Hour of the Day")+
+      theme_economist() + scale_colour_economist()+ 
+      theme(plot.title = element_text(color="black", size=25, face="bold"),
+            axis.title.x = element_text(color="black", size=20, face="bold"),
+            axis.title.y = element_text(color="black", size=20, face="bold"),
+            axis.text.x = element_text(color = "black", size  = 15, face = "bold"),
+            axis.text.y = element_text(color = "black", size  = 15, face = "bold"))
+  })
+  
+  html_legend1 <- "<img src='https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png'> Location of Accidents<br/>Click the icon to see accident date"
+  html_legend2 <- "Density circles represent the number<br/>of accidents in the concerned area"
+  html_legend3 <- "Zoom-in to explore further"
+  # Create text output stating the correlation between the two plotted variables
+  output$map <- renderLeaflet({
+    leaflet(data = newtc) %>%
+      setView(lng = -118.3617, lat = 34.0900,zoom = 10) %>%
+      addTiles() %>%
+      addMarkers(~long, 
+                 ~lat, 
+                 popup = ~as.character(dateocc), 
+                 label = ~as.character(paste(as.character(lat),as.character(long))),
+                 clusterOptions = markerClusterOptions()
+      ) %>%
+      addControl(html = html_legend1, position = "bottomright") %>%
+      addControl(html = html_legend2, position = "topleft") %>%
+      addControl(html = html_legend3, position = "bottomleft")
+  })
+  
+  
+  html_leg <- "Red clusters represent accident prone areas"
+  output$heatmap <- renderLeaflet({
+    leaflet(data = newtc) %>%
+      setView(lng = -118.3617, lat = 34.0900,zoom = 10) %>%
+      addProviderTiles(providers$CartoDB.DarkMatter) %>%
+      addWebGLHeatmap(lng=~long, lat=~lat,size=10,units='px') %>%
+      addMarkers(~long, 
+                 ~lat,  
+                 label = ~as.character(paste(areaname,timeocc)),
+                 popup = ~as.character(hour),
+                 clusterOptions = markerClusterOptions()) %>%
+      addControl(html = html_leg, position = "topleft")
+  }
+      )
+  output$heatmap1 <- renderPlot({
+      
+    a <- data.frame(table(newtc$hourofacc, newtc$areaname))
+    
+    ggplot(a) + 
+      aes(x = Var1, y = Var2, fill = Freq) +
+      geom_raster(interpolate = TRUE) +
+      ggtitle(label = "Accident Prone Locations Heatmap") +
+      theme(plot.title = element_text(color="black", size=25, face="bold"),
+            axis.title.x = element_text(color="black", size=20, face="bold"),
+            axis.title.y = element_text(color="black", size=20, face="bold"),
+            axis.text.x = element_text(color = "black", size  = 15, face = "bold"),
+            axis.text.y = element_text(color = "black", size  = 15, face = "bold")) +
+      xlab("Hour of the Day") +
+      ylab("Area") +
+      scale_fill_gradient(name = "Number of Accidents",
+                          low = "#0000FF",
+                          high = "#FF0000")
+    })
+  
+}
+
+```
+
+
+
+
+```{r Shiny App}
+shinyApp(ui = ui, server = server)
+```
+
+
+
