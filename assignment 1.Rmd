@@ -1,0 +1,119 @@
+---
+---
+
+```{r setup, include=FALSE}
+library(janitor)
+library(lubridate)
+library(rgdal)
+library(tidyverse)
+library(leaflet)
+```
+
+## Inputs and Outputs
+
+```{r eruptions, echo=FALSE}
+setwd("F:/SUMMER'19/SUBJECTS/ADV BA WITH R/assignments/assignment 1")
+tc <- read_csv("traffic-collision-data-from-2010-to-present.csv")
+
+
+tc$latlong <- gsub("[^0-9.]", "", tc$Location) 
+lat <- substring(tc$latlong,1,7)
+long <- substring(tc$latlong,8,)
+tc$lat <- as.double(lat)
+tc$long <- -as.double(long)
+empindex <- which(is.na(tc$lat))
+newtc <- tc[-empindex,]
+newtc$latlong <- NULL
+newtc <- select(newtc, -2, -7:-24)
+colnames(newtc)[1] <- "drnumber"
+colnames(newtc)[2] <- "dateocc"
+colnames(newtc)[3] <- "timeocc"
+colnames(newtc)[4] <- "areacode"
+colnames(newtc)[5] <- "areaname"
+colnames(newtc)[6] <- "lat"
+colnames(newtc)[7] <- "long"
+newtc$year <- lubridate::year(newtc$dateocc)
+newtc <- subset(newtc, year == 2018)
+hour <- newtc$timeocc
+hour <- paste(substr(hour,1,2),":",substr(hour,3,4), sep = "")
+hour <- strptime(paste("2001-01-01", hour), format="%Y-%m-%d %H:%M")
+hour <- format(round(hour, units="hours"), format="%H:%M")
+newtc$hourofacc <- hour
+
+```
+
+## Embedded Application
+
+```{r tabsets, echo=FALSE}
+library(shiny)
+library(dplyr)
+library(leaflet)
+
+# Define UI for application that draws a histogram
+ui <- navbarPage(
+
+    # Application title
+    "LA Traffic Collisions", id = "la",
+    
+    tabPanel("Tab 1",
+             
+      sidebarLayout(
+            sidebarPanel(
+                  dateInput(inputId = "date", 
+                            label = "Enter Date", 
+                            value = "2018-07-26", 
+                            min = "2018-01-01", 
+                            max = "2018-12-31")
+    ),
+            mainPanel(
+              plotOutput(outputId = "histogram")
+    )
+  )         
+),
+
+    tabPanel("Tab 2",
+    leafletOutput(outputId = "map")
+    ),
+    tabPanel("Tab 3",
+    
+        sidebarLayout(
+            sidebarPanel(
+                  selectInput(inputId = "hour", 
+                            label = "Select hour of the day", 
+                            selected = "18:00", 
+                            choices = c("00:00", "01:00", "02:00", "03:00", "04:00", "05:00", "06:00", "07:00", "08:00",
+ "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00",
+ "18:00", "19:00", "20:00", "21:00", "22:00", "23:00", "24:00"))
+    ),
+            mainPanel(
+              leafletOutput(outputId = "heatmap")
+    )
+  )                     
+)
+)
+```
+
+```{r setup, include=FALSE}
+server <- function(input, output) {
+  
+  # Create scatterplot object the plotOutput function is expecting
+  output$histogram <- renderPlot({
+    
+  })
+  
+  # Create text output stating the correlation between the two plotted variables
+  output$map <- renderLeaflet({
+                leaflet(data = newtc) %>% 
+            addTiles() %>%
+            addMarkers(~long, 
+                       ~lat 
+                       #popup = ~as.character(date_occ), 
+                       #label = ~as.character(date_occ),
+                       #clusterOptions = markerClusterOptions())
+                       )
+  })
+}
+```
+
+
+
